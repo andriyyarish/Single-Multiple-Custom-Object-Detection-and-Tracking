@@ -37,7 +37,7 @@ def drow_the_lines(img, lines):
     for line in lines:
         for x1, y1, x2, y2 in line:
             cv2.line(img, (x1, y1), (x2, y2), (50, 100, 200), thickness=2)
-    cv2.line(img, (0, 300), (1500, 300), (100, 100, 200), thickness=2)
+    cv2.line(img, (0, 340), (1500, 340), (100, 100, 200), thickness=2) ## max y to be considered as intersection
     return img
 
 
@@ -92,7 +92,7 @@ def line_intersection_dection(bounding_line, line_target_line):
             intersection_point = line_bounding.intersection(line_to_check)
 
             if not intersection_point.is_empty:
-                if intersection_point.xy[1][0] > 300:
+                if intersection_point.xy[1][0] > 340:
                     print(intersection_point)
                     # return intersection_point.xy[0]
                     result[key] = intersection_point

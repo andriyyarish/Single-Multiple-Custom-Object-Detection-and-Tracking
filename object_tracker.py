@@ -38,25 +38,15 @@ encoder = gdet.create_box_encoder(model_filename, batch_size=1)
 metric = nn_matching.NearestNeighborDistanceMetric('cosine', max_cosine_distance, nn_budget)
 tracker = Tracker(metric)
 
-bounding_lines = None
-
-vid = cv2.VideoCapture('./data/video/doroga1.mp4')
-
-codec = cv2.VideoWriter_fourcc(*'XVID')
-vid_fps = int(vid.get(cv2.CAP_PROP_FPS))
-vid_width, vid_height = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)), int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-out = cv2.VideoWriter('./data/video/results.avi', codec, vid_fps, (vid_width, vid_height))
-
+bounding_lines = None ## straight bounding lines for intersection count
 track_id_to_tracklet_map = {} ## tracklets
-
 
 def update_tracks_info(track, center):
     if track_id_to_tracklet_map.get(track.track_id) is None:
-        track_id_to_tracklet_map[track.track_id] = deque(maxlen=40)
+        track_id_to_tracklet_map[track.track_id] = deque(maxlen=25)
     track_id_to_tracklet_map[track.track_id].append(center)
     if not track.is_confirmed():
         track_id_to_tracklet_map.pop(track.track_id, None)
-
 
 # retrieve start and end to be able to draw straight line for each track for further intersection detection
 def get_tracks_start_end_dots():
@@ -66,7 +56,6 @@ def get_tracks_start_end_dots():
                                track_id_to_tracklet_map.get(key)[-1]]  # get first and last elements of the track dots
     return start_end_dict
 
-
 def clean_up_outdated_tracklets():
     active_track_ids = set()
     for track in tracker.tracks:
@@ -74,7 +63,6 @@ def clean_up_outdated_tracklets():
     for k in list(track_id_to_tracklet_map.keys()):
         if k not in active_track_ids:
             del track_id_to_tracklet_map[k]
-
 
 def draw_tracklets(img):
     clean_up_outdated_tracklets()
@@ -85,24 +73,21 @@ def draw_tracklets(img):
         # thickness = int(np.sqrt(64 / float(key + 1)) * 2)
         cv2.line(img, start_end_dots[key][0], start_end_dots[key][1], (0, 255, 0), 4)
 
-
 counter = []
 frameCounter = 0
+
+vid = cv2.VideoCapture('./data/video/doroga1.mp4')
+codec = cv2.VideoWriter_fourcc(*'XVID')
+vid_fps = int(vid.get(cv2.CAP_PROP_FPS))
+vid_width, vid_height = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)), int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+out = cv2.VideoWriter('./data/video/results.avi', codec, vid_fps, (vid_width, vid_height))
 
 while True:
     _, img = vid.read()  # read frame by frame
     if img is None:
-        print('Completed')
+        print('Completed. No more frames to process')
         break
 
-    # if bounding_lines is None or frameCounter > 50:
-    #     # lines_image = cv2.imread('./data/video/initLines.png')
-    #     bounding_lines = detect_lines(img)
-    #     cv2.imwrite('./data/video/initLines.png', img)
-    #     time_line_initiated = time.time()
-    #     frameCounter = 0
-    # else:
-    #     frameCounter = frameCounter + 1
     if bounding_lines is None:
         # lines_image = cv2.imread('./data/video/initLines.png')
         bounding_lines = detect_lines(img)
@@ -125,8 +110,7 @@ while True:
     for i in range(len(classes)):
         names.append(class_names[int(classes[i])])
     names = np.array(names)
-    converted_boxes = convert_boxes(img, boxes[
-        0])  # due to image was resized box should be resized back according to original image size
+    converted_boxes = convert_boxes(img, boxes[0])  # due to image was resized box should be resized back according to original image size
     features = encoder(img, converted_boxes)
 
     detections = [Detection(bbox, score, class_name, feature) for bbox, score, class_name, feature in
@@ -156,11 +140,11 @@ while True:
 
         # draw bounding box on the initial image
         cv2.rectangle(img, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
-        cv2.rectangle(img, (int(bbox[0]), int(bbox[1] - 30)), (int(bbox[0]) + (len(class_name)
-                                                                               + len(str(track.track_id))) * 17,
+        cv2.rectangle(img, (int(bbox[0]), int(bbox[1] - 20)), (int(bbox[0]) + (len(class_name)
+                                                                               + len(str(track.track_id))) * 13,
                                                                int(bbox[1])), color, -1)
-        cv2.putText(img, class_name + "-" + str(track.track_id), (int(bbox[0]), int(bbox[1] - 10)), 0, 0.75,
-                    (255, 255, 255), 2)
+        cv2.putText(img, class_name + "-" + str(track.track_id), (int(bbox[0]), int(bbox[1] - 5)), 0, 0.5,
+                    (255, 255, 255), 1)
 
         # calculate center of the bounding box to further use it for track drawing
         center = (int(((bbox[0]) + (bbox[2])) / 2), int(((bbox[1]) + (bbox[3])) / 2))
@@ -192,11 +176,11 @@ while True:
 
     if result is not None or result.__len__() != 0:
         for key in result:
-            print("Intersection detected for object with id {}", key)
+            print("Intersection detected for object with id ", key)
 
     total_count = len(set(counter))
-    cv2.putText(img, "Current Vehicle Count: " + str(current_count), (0, 80), 0, 1, (0, 0, 255), 2)
-    cv2.putText(img, "Total Vehicle Count: " + str(total_count), (0, 130), 0, 1, (0, 0, 255), 2)
+    # cv2.putText(img, "Current Vehicle Count: " + str(current_count), (0, 80), 0, 1, (0, 0, 255), 2)
+    # cv2.putText(img, "Total Vehicle Count: " + str(total_count), (0, 130), 0, 1, (0, 0, 255), 2)
 
     fps = 1. / (time.time() - t1)
     cv2.putText(img, "FPS: {:.2f}".format(fps), (0, 30), 0, 1, (0, 0, 255), 2)
