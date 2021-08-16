@@ -4,7 +4,7 @@ from absl import flags
 
 FLAGS = flags.FLAGS
 FLAGS(sys.argv)
-
+from test_data_reader import Parameters
 import time
 import numpy as np
 import cv2
@@ -41,9 +41,11 @@ tracker = Tracker(metric)
 bounding_lines = None ## straight bounding lines for intersection count
 track_id_to_tracklet_map = {} ## tracklets
 
+
+
 def update_tracks_info(track, center):
     if track_id_to_tracklet_map.get(track.track_id) is None:
-        track_id_to_tracklet_map[track.track_id] = deque(maxlen=25)
+        track_id_to_tracklet_map[track.track_id] = deque(maxlen=50)
     track_id_to_tracklet_map[track.track_id].append(center)
     if not track.is_confirmed():
         track_id_to_tracklet_map.pop(track.track_id, None)
@@ -66,130 +68,131 @@ def clean_up_outdated_tracklets():
 
 def draw_tracklets(img):
     clean_up_outdated_tracklets()
-    start_end_dots = get_tracks_start_end_dots()
-    if start_end_dots is None:
-        return
-    for key in start_end_dots:
-        # thickness = int(np.sqrt(64 / float(key + 1)) * 2)
-        cv2.line(img, start_end_dots[key][0], start_end_dots[key][1], (0, 255, 0), 4)
+    for key in track_id_to_tracklet_map:
+        for dot in track_id_to_tracklet_map[key]:
+            cv2.circle(img, dot, 0, color=(0, 255, 50), thickness=2)
 
 counter = []
 frameCounter = 0
 
-vid = cv2.VideoCapture('./data/video/doroga1.mp4')
+vid = None
 codec = cv2.VideoWriter_fourcc(*'XVID')
-vid_fps = int(vid.get(cv2.CAP_PROP_FPS))
-vid_width, vid_height = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)), int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-out = cv2.VideoWriter('./data/video/results.avi', codec, vid_fps, (vid_width, vid_height))
+vid_fps = None
+vid_width = None
+vid_height = None
+out = None
 
-while True:
-    _, img = vid.read()  # read frame by frame
-    if img is None:
-        print('Completed. No more frames to process')
-        break
+def init_global_variables(parameters):
+    global vid, vid_fps, vid_width, vid_height, out
 
-    if bounding_lines is None:
-        # lines_image = cv2.imread('./data/video/initLines.png')
-        bounding_lines = detect_lines(img)
-        cv2.imwrite('./data/video/initLines.png', img)
+    vid = cv2.VideoCapture(parameters.video_file)
+    vid_fps = int(vid.get(cv2.CAP_PROP_FPS))
+    vid_width, vid_height = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)), int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    out = cv2.VideoWriter(parameters.output_file, codec, vid_fps, (vid_width, vid_height))
 
-    img_in = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # convert color from cv2 default format BGR to yolo RGB
-    img_in = tf.expand_dims(img_in, 0)  # 3d -> 4d array batch size | height | width | depth
-    img_in = transform_images(img_in, 416)  # resize to default yolo size
+def start_processing(parameters):
+    init_global_variables(parameters)
+    intersection_counter = set()
+    global bounding_lines
+    bounding_lines = None
+    while True:
+        _, img = vid.read()  # read frame by frame
+        if img is None:
+            print('Completed. No more frames to process')
+            break
+        if bounding_lines is None:
+            # lines_image = cv2.imread('./data/video/doroga1_init.png')
+            bounding_lines = detect_lines(img, parameters.region_of_interest_rectangle)
+            # cv2.imwrite('data/video/doroga1_init.png', img)
 
-    t1 = time.time()
+        img_in = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # convert color from cv2 default format BGR to yolo RGB
+        img_in = tf.expand_dims(img_in, 0)  # 3d -> 4d array batch size | height | width | depth
+        img_in = transform_images(img_in, 416)  # resize to default yolo size
 
-    boxes, scores, classes, nums = yolo.predict(img_in)  #
-    # boxes, 3d shape (1,100,4) - third param is x,y of the center width and height
-    # scores, 2d shape (1,100) - remaining filled with zeros
-    # classes, 2D shape (1, 100) - detected object class , remaining filled with zero
-    # nums, 1D shape (1) - total num of detected objects
+        t1 = time.time()
 
-    classes = classes[0]
-    names = []
-    for i in range(len(classes)):
-        names.append(class_names[int(classes[i])])
-    names = np.array(names)
-    converted_boxes = convert_boxes(img, boxes[0])  # due to image was resized box should be resized back according to original image size
-    features = encoder(img, converted_boxes)
+        boxes, scores, classes, nums = yolo.predict(img_in)  #
+        # boxes, 3d shape (1,100,4) - third param is x,y of the center width and height
+        # scores, 2d shape (1,100) - remaining filled with zeros
+        # classes, 2D shape (1, 100) - detected object class , remaining filled with zero
+        # nums, 1D shape (1) - total num of detected objects
 
-    detections = [Detection(bbox, score, class_name, feature) for bbox, score, class_name, feature in
-                  zip(converted_boxes, scores[0], names, features)]
+        classes = classes[0]
+        names = []
+        for i in range(len(classes)):
+            names.append(class_names[int(classes[i])])
+        names = np.array(names)
+        converted_boxes = convert_boxes(img, boxes[0])  # due to image was resized box should be resized back according to original image size
+        features = encoder(img, converted_boxes)
 
-    boxs = np.array([d.tlwh for d in detections])
-    scores = np.array([d.confidence for d in detections])
-    classes = np.array([d.class_name for d in detections])
-    indices = preprocessing.non_max_suppression(boxs, classes, nms_max_overlap, scores)
-    detections = [detections[i] for i in indices]
+        detections = [Detection(bbox, score, class_name, feature) for bbox, score, class_name, feature in
+                      zip(converted_boxes, scores[0], names, features)]
 
-    tracker.predict()
-    tracker.update(detections)
+        boxs = np.array([d.tlwh for d in detections])
+        scores = np.array([d.confidence for d in detections])
+        classes = np.array([d.class_name for d in detections])
+        indices = preprocessing.non_max_suppression(boxs, classes, nms_max_overlap, scores)
+        detections = [detections[i] for i in indices]
 
-    cmap = plt.get_cmap('tab20b')
-    colors = [cmap(i)[:3] for i in np.linspace(0, 1, 20)]
+        tracker.predict()
+        tracker.update(detections)
 
-    current_count = int(0)
+        cmap = plt.get_cmap('tab20b')
+        colors = [cmap(i)[:3] for i in np.linspace(0, 1, 20)]
 
-    for track in tracker.tracks:
-        if not track.is_confirmed() or track.time_since_update > 1:
-            continue
-        bbox = track.to_tlbr()
-        class_name = track.get_class()
-        color = colors[int(track.track_id) % len(colors)]
-        color = [i * 255 for i in color]
+        current_count = int(0)
 
-        # draw bounding box on the initial image
-        cv2.rectangle(img, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
-        cv2.rectangle(img, (int(bbox[0]), int(bbox[1] - 20)), (int(bbox[0]) + (len(class_name)
-                                                                               + len(str(track.track_id))) * 13,
-                                                               int(bbox[1])), color, -1)
-        cv2.putText(img, class_name + "-" + str(track.track_id), (int(bbox[0]), int(bbox[1] - 5)), 0, 0.5,
-                    (255, 255, 255), 1)
+        for track in tracker.tracks:
+            if not track.is_confirmed() or track.time_since_update > 1:
+                continue
+            bbox = track.to_tlbr()
+            class_name = track.get_class()
+            color = colors[int(track.track_id) % len(colors)]
+            color = [i * 255 for i in color]
 
-        # calculate center of the bounding box to further use it for track drawing
-        center = (int(((bbox[0]) + (bbox[2])) / 2), int(((bbox[1]) + (bbox[3])) / 2))
-        update_tracks_info(track, center)
+            # draw bounding box on the initial image
+            cv2.rectangle(img, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
+            cv2.rectangle(img, (int(bbox[0]), int(bbox[1] - 20)), (int(bbox[0]) + (len(class_name)
+                                                                                   + len(str(track.track_id))) * 13,
+                                                                   int(bbox[1])), color, -1)
+            cv2.putText(img, class_name + "-" + str(track.track_id), (int(bbox[0]), int(bbox[1] - 5)), 0, 0.5,
+                        (255, 255, 255), 1)
 
-        # pts[track.track_id].append(center)
-        # for j in range(1, len(pts[track.track_id])):
-        #     if pts[track.track_id][j - 1] is None or pts[track.track_id][j] is None:
-        #         continue
-        #     thickness = int(np.sqrt(64 / float(j + 1)) * 2)
-        #     cv2.line(img, (pts[track.track_id][j - 1]), (pts[track.track_id][j]), color, thickness)
+            # calculate center of the bounding box to further use it for track drawing
+            center = (int(((bbox[0]) + (bbox[2])) / 2), int(((bbox[1]) + (bbox[3])) / 2))
+            update_tracks_info(track, center)
 
-        height, width, _ = img.shape
-        # cv2.line(img, (0, int(3 * height / 6 + height / 20)), (width, int(3 * height / 6 + height / 20)), (0, 255, 0),
-        #          thickness=2)
-        # cv2.line(img, (0, int(3 * height / 6 - height / 20)), (width, int(3 * height / 6 - height / 20)), (0, 255, 0),
-        #          thickness=2)
 
-        center_y = int(((bbox[1]) + (bbox[3])) / 2)
+            height, width, _ = img.shape
 
-        if center_y <= int(3 * height / 6 + height / 20) and center_y >= int(3 * height / 6 - height / 20):
-            if class_name == 'car' or class_name == 'truck':
-                counter.append(int(track.track_id))
-                current_count += 1
+            center_y = int(((bbox[1]) + (bbox[3])) / 2)
 
-    draw_tracklets(img)
-    drow_the_lines(img, bounding_lines)
-    result = line_intersection_dection(bounding_lines, get_tracks_start_end_dots())
+            if center_y <= int(3 * height / 6 + height / 20) and center_y >= int(3 * height / 6 - height / 20):
+                if class_name == 'car' or class_name == 'truck':
+                    counter.append(int(track.track_id))
+                    current_count += 1
 
-    if result is not None or result.__len__() != 0:
-        for key in result:
-            print("Intersection detected for object with id ", key)
+        draw_tracklets(img)
+        drow_the_lines(img, bounding_lines)
+        result = line_intersection_dection(bounding_lines, get_tracks_start_end_dots())
 
-    total_count = len(set(counter))
-    # cv2.putText(img, "Current Vehicle Count: " + str(current_count), (0, 80), 0, 1, (0, 0, 255), 2)
-    # cv2.putText(img, "Total Vehicle Count: " + str(total_count), (0, 130), 0, 1, (0, 0, 255), 2)
+        if result is not None: # or result.__len__() != 0
+            for key in result:
+                print("Intersection detected for object with id ", key)
+                intersection_counter.add(key)
+                # cropped_img =  img[int(bbox[0]):int(bbox[2]), int(bbox[1]):int(bbox[3])]
+                # cv2.imwrite("data/video/detection_{}.png".format(track.track_id),cropped_img)
 
-    fps = 1. / (time.time() - t1)
-    cv2.putText(img, "FPS: {:.2f}".format(fps), (0, 30), 0, 1, (0, 0, 255), 2)
-    cv2.imshow('output', img)
-    # cv2.resizeWindow('output', 1024, 768)
-    out.write(img)
 
-    if cv2.waitKey(1) == ord('q'):
-        break
-vid.release()
-out.release()
-cv2.destroyAllWindows()
+        fps = 1. / (time.time() - t1)
+        cv2.putText(img, "FPS: {:.2f}".format(fps), (0, 30), 0, 1, (0, 0, 255), 2)
+        cv2.putText(img, "Intersection counter: {}".format(len(intersection_counter)), (0, 120), 0, 1, (0, 150, 255), 2)
+        cv2.imshow('output', img)
+        # cv2.resizeWindow('output', 1024, 768)
+        out.write(img)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
+    vid.release()
+    out.release()
+    cv2.destroyAllWindows()

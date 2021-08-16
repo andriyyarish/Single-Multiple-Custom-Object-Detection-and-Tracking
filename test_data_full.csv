@@ -1,0 +1,4 @@
+video_file_name, bounding_line_init_img, bounding_line_mask_triangle
+doroga1.mp4, doroga1_init.png, 770|1080|850|1080|1100|380|1060|380
+doroga_s_1.mp4, doroga_s_1_init.pqng, 1500|690|1520|670|455|140|310|120
+doroga_v_1.mp4, doroga_v_1_init.png, 0|730|0|775|1830|295|1830|275
