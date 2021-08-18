@@ -46,13 +46,13 @@ def drow_the_lines(img, lines):
 
 def detect_lines(image, region_of_interest_vertices):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
+    cv2.imshow("original", image)
     blur_image = cv2.medianBlur(image, 1)
     gray_image = apply_mask(blur_image)
     cv2.imshow("gray_image", gray_image)
 
     canny_image = cv2.Canny(gray_image, 75, 150)
-    # cv2.imshow("canny_image", canny_image)
+    cv2.imshow("canny_image", canny_image)
     cropped_image = region_of_interest(canny_image,
                                        np.array([region_of_interest_vertices], np.int32), )
     cv2.imshow("cropped_img", cropped_image)
@@ -61,8 +61,9 @@ def detect_lines(image, region_of_interest_vertices):
                             theta=np.pi / 180,
                             threshold=50,
                             lines=np.array([]),
-                            minLineLength=40,
+                            minLineLength=70,
                             maxLineGap=50)
+    print("Amount of lines detected by Hough {}".format(len(lines)))
     return lines
 
 

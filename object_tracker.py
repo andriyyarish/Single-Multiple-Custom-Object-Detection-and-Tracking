@@ -101,9 +101,8 @@ def start_processing(parameters):
             print('Completed. No more frames to process')
             break
         if bounding_lines is None:
-            # lines_image = cv2.imread('./data/video/doroga1_init.png')
-            bounding_lines = detect_lines(img, parameters.region_of_interest_rectangle)
-            # cv2.imwrite('data/video/doroga1_init.png', img)
+            lines_image = cv2.imread(parameters.init_lines_image)
+            bounding_lines = detect_lines(lines_image, parameters.region_of_interest_rectangle)
 
         img_in = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # convert color from cv2 default format BGR to yolo RGB
         img_in = tf.expand_dims(img_in, 0)  # 3d -> 4d array batch size | height | width | depth
